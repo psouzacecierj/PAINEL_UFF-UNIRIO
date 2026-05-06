@@ -22,7 +22,7 @@ with col1:
 with col2:
     st.markdown("""
         <h1 style='text-align: center; margin-bottom: 0; color: #0b5c73;'>
-            Controle de Cadastro Reserva - Matemática
+            Controle de Cadastro Reserva Matemática
         </h1>
         <h3 style='text-align: center; margin-top: 5px; color: #0b5c73;'>
             UFF/UNIRIO – CEDERJ
@@ -42,7 +42,6 @@ def carregar_dados() -> pd.DataFrame:
     
     try:
         df = pd.read_csv(url)
-        # Remove espaços extras dos nomes das colunas
         df.columns = df.columns.str.strip()
         return df
     except Exception as e:
@@ -50,18 +49,17 @@ def carregar_dados() -> pd.DataFrame:
         return pd.DataFrame()
 
 # ------------------------------------------------------
-# LEITURA DA ABA DE MAPEAMENTO (Grupo x Disciplinas) usando gid
+# LEITURA DA ABA DE MAPEAMENTO (Grupo x Disciplinas)
 # ------------------------------------------------------
 @st.cache_data(ttl=60)
 def carregar_mapeamento() -> pd.DataFrame:
     """Carrega a aba 'Grupo_Disciplina' usando o gid da aba"""
     sheet_id = "1Njfuxo4usLFCbxl_bLg77n9pCFiHSu5IL1nlxHSSCsI"
-    gid = "135516567"  # gid da aba Grupo_Disciplina
+    gid = "135516567"
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
     
     try:
         df = pd.read_csv(url)
-        # Remove espaços extras dos nomes das colunas
         df.columns = df.columns.str.strip()
         return df
     except Exception as e:
@@ -76,17 +74,20 @@ if df.empty:
     st.stop()
 
 # ------------------------------------------------------
-# CRIAR DICIONÁRIO DE DISCIPLINAS POR GRUPO
+# CRIAR DICIONÁRIO DE DISCIPLINAS POR GRUPO (COM CÓDIGO)
 # ------------------------------------------------------
 disciplinas_por_grupo = {}
 if not df_mapeamento.empty:
-    # Verificar se as colunas necessárias existem
-    if "Grupo" in df_mapeamento.columns and "Disciplina" in df_mapeamento.columns:
+    if "Grupo" in df_mapeamento.columns and "CD Disciplina" in df_mapeamento.columns and "Disciplina" in df_mapeamento.columns:
         for grupo in df_mapeamento["Grupo"].unique():
             if pd.notna(grupo):
-                disciplinas = df_mapeamento[df_mapeamento["Grupo"] == grupo]["Disciplina"].tolist()
-                disciplinas = [str(d).strip() for d in disciplinas if pd.notna(d)]
-                disciplinas_por_grupo[str(grupo).strip()] = disciplinas
+                disciplinas_codigo = []
+                subset = df_mapeamento[df_mapeamento["Grupo"] == grupo]
+                for _, row in subset.iterrows():
+                    codigo = row["CD Disciplina"]
+                    nome = row["Disciplina"]
+                    disciplinas_codigo.append(f"{codigo} – {nome}")
+                disciplinas_por_grupo[str(grupo).strip()] = disciplinas_codigo
     else:
         st.sidebar.warning(f"Colunas do mapeamento: {list(df_mapeamento.columns)}")
 
@@ -205,7 +206,6 @@ def calcular_kpis(df_base: pd.DataFrame) -> dict:
 # ------------------------------------------------------
 # KPIs COM FILTRO POR EDITAL
 # ------------------------------------------------------
-st.markdown("---")
 st.subheader("📊 Indicadores")
 
 opcoes_edital_kpi = ["(todos)"] + sorted(df["Edital"].dropna().unique().tolist())
@@ -279,13 +279,13 @@ if not grupos_validos.empty:
         df_filtrado = df_filtrado[df_filtrado["Grupo"].astype(str) == grupo_sel]
         
         # ------------------------------------------------------
-        # EXPANDER: MOSTRAR DISCIPLINAS DO GRUPO SELECIONADO
+        # EXPANDER: MOSTRAR CÓDIGO + DISCIPLINAS DO GRUPO SELECIONADO
         # ------------------------------------------------------
         grupo_limpo = str(grupo_sel).strip()
         if grupo_limpo in disciplinas_por_grupo:
             with st.expander(f"📖 Disciplinas do grupo: {grupo_sel}"):
                 disciplinas = disciplinas_por_grupo[grupo_limpo]
-                # Mostrar em 3 colunas para economizar espaço
+                # Mostrar em 3 colunas
                 cols = st.columns(3)
                 for i, disc in enumerate(disciplinas):
                     cols[i % 3].markdown(f"- {disc}")
