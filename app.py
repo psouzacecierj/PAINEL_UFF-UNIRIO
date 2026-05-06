@@ -22,7 +22,7 @@ with col1:
 with col2:
     st.markdown("""
         <h1 style='text-align: center; margin-bottom: 0; color: #0b5c73;'>
-            Controle de Cadastro Reserva Matemática
+            Controle de Cadastro Reserva - Matemática
         </h1>
         <h3 style='text-align: center; margin-top: 5px; color: #0b5c73;'>
             UFF/UNIRIO – CEDERJ
@@ -33,7 +33,7 @@ with col3:
     st.empty()
 
 # ------------------------------------------------------
-# LEITURA DA BASE (Google Sheets - CSV)
+# LEITURA DA BASE PRINCIPAL (Google Sheets - CSV)
 # ------------------------------------------------------
 @st.cache_data(ttl=60)
 def carregar_dados() -> pd.DataFrame:
@@ -42,15 +42,53 @@ def carregar_dados() -> pd.DataFrame:
     
     try:
         df = pd.read_csv(url)
+        # Remove espaços extras dos nomes das colunas
+        df.columns = df.columns.str.strip()
         return df
     except Exception as e:
         st.error(f"Erro ao carregar planilha: {str(e)}")
         return pd.DataFrame()
 
+# ------------------------------------------------------
+# LEITURA DA ABA DE MAPEAMENTO (Grupo x Disciplinas) usando gid
+# ------------------------------------------------------
+@st.cache_data(ttl=60)
+def carregar_mapeamento() -> pd.DataFrame:
+    """Carrega a aba 'Grupo_Disciplina' usando o gid da aba"""
+    sheet_id = "1Njfuxo4usLFCbxl_bLg77n9pCFiHSu5IL1nlxHSSCsI"
+    gid = "135516567"  # gid da aba Grupo_Disciplina
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+    
+    try:
+        df = pd.read_csv(url)
+        # Remove espaços extras dos nomes das colunas
+        df.columns = df.columns.str.strip()
+        return df
+    except Exception as e:
+        st.warning(f"Não foi possível carregar o mapeamento de grupos: {str(e)}")
+        return pd.DataFrame()
+
+# Carregar os dados
 df = carregar_dados()
+df_mapeamento = carregar_mapeamento()
 
 if df.empty:
     st.stop()
+
+# ------------------------------------------------------
+# CRIAR DICIONÁRIO DE DISCIPLINAS POR GRUPO
+# ------------------------------------------------------
+disciplinas_por_grupo = {}
+if not df_mapeamento.empty:
+    # Verificar se as colunas necessárias existem
+    if "Grupo" in df_mapeamento.columns and "Disciplina" in df_mapeamento.columns:
+        for grupo in df_mapeamento["Grupo"].unique():
+            if pd.notna(grupo):
+                disciplinas = df_mapeamento[df_mapeamento["Grupo"] == grupo]["Disciplina"].tolist()
+                disciplinas = [str(d).strip() for d in disciplinas if pd.notna(d)]
+                disciplinas_por_grupo[str(grupo).strip()] = disciplinas
+    else:
+        st.sidebar.warning(f"Colunas do mapeamento: {list(df_mapeamento.columns)}")
 
 # ------------------------------------------------------
 # LIMPEZA DE LINHAS SUJEIRA
@@ -118,7 +156,7 @@ def buscar_ocorrencias_candidato(nome_parcial: str, df_base: pd.DataFrame) -> pd
     )[colunas_existentes]
 
 # ------------------------------------------------------
-# CÁLCULO DE KPIs (AGORA COM RECUSOU)
+# CÁLCULO DE KPIS (Total, Convocados, Aguardando, Expirados, Recusou)
 # ------------------------------------------------------
 def calcular_kpis(df_base: pd.DataFrame) -> dict:
     df_tmp = df_base.copy()
@@ -146,22 +184,14 @@ def calcular_kpis(df_base: pd.DataFrame) -> dict:
     expirados_mask = expirado_por_prazo | expirado_por_texto
 
     total = len(df_tmp)
-
-    convocados = (
-        (df_tmp["Status"] == "Convocado").sum()
-        if "Status" in df_tmp.columns else 0
-    )
-
-    recusou = (
-        (df_tmp["Status"] == "Recusou").sum()
-        if "Status" in df_tmp.columns else 0
-    )
-
+    convocados = (df_tmp["Status"] == "Convocado").sum() if "Status" in df_tmp.columns else 0
+    recusou = (df_tmp["Status"] == "Recusou").sum() if "Status" in df_tmp.columns else 0
+    
     aguardando = (
         (df_tmp["Status"] == "Aguardando convocação")
         & (~expirados_mask)
     ).sum() if "Status" in df_tmp.columns else 0
-
+    
     expirados = expirados_mask.sum()
 
     return {
@@ -179,6 +209,7 @@ st.markdown("---")
 st.subheader("📊 Indicadores")
 
 opcoes_edital_kpi = ["(todos)"] + sorted(df["Edital"].dropna().unique().tolist())
+
 edital_kpi = st.selectbox("Filtrar indicadores por edital:", opcoes_edital_kpi)
 
 df_kpi = df if edital_kpi == "(todos)" else df[df["Edital"] == edital_kpi]
@@ -246,6 +277,20 @@ if not grupos_validos.empty:
 
     if grupo_sel != "(todos)":
         df_filtrado = df_filtrado[df_filtrado["Grupo"].astype(str) == grupo_sel]
+        
+        # ------------------------------------------------------
+        # EXPANDER: MOSTRAR DISCIPLINAS DO GRUPO SELECIONADO
+        # ------------------------------------------------------
+        grupo_limpo = str(grupo_sel).strip()
+        if grupo_limpo in disciplinas_por_grupo:
+            with st.expander(f"📖 Disciplinas do grupo: {grupo_sel}"):
+                disciplinas = disciplinas_por_grupo[grupo_limpo]
+                # Mostrar em 3 colunas para economizar espaço
+                cols = st.columns(3)
+                for i, disc in enumerate(disciplinas):
+                    cols[i % 3].markdown(f"- {disc}")
+        else:
+            st.info("ℹ️ Mapeamento de disciplinas não disponível para este grupo.")
 
 # ---- FILTRO STATUS ----
 status_validos = df_filtrado["Status"].dropna().unique().tolist()
